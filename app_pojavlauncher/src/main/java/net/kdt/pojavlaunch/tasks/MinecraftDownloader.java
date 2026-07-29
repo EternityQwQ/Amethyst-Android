@@ -61,7 +61,6 @@ public class MinecraftDownloader {
 
     private static final ThreadLocal<byte[]> sThreadLocalDownloadBuffer = new ThreadLocal<>();
 
-    private boolean isLocalProfile = false;
     private boolean isOnline;
 
     /**
@@ -75,24 +74,25 @@ public class MinecraftDownloader {
                       @NonNull String realVersion,
                       @NonNull AsyncMinecraftDownloader.DoneListener listener) {
         if(activity != null){
-            isLocalProfile = Tools.isLocalProfile(activity);
             isOnline = Tools.isOnline(activity);
             Tools.switchDemo(Tools.isDemoProfile(activity));
 
         } else {
-            isLocalProfile = true;
             Tools.switchDemo(true);
         }
 
         sExecutorService.execute(() -> {
             try {
-                if(isLocalProfile || !isOnline) {
+                if(!isOnline) {
                     String versionMessage = realVersion; // Use provided version unless we find its a modded instance
 
                     // See if provided version is a modded version and if that version depends on another jar, check for presence of both jar's .json.
                     try {
                         // This reads the .json associated with the provided version. If it fails, we can assume it's not installed.
                         File providedJsonFile = new File(Tools.DIR_HOME_VERSION + "/" + realVersion + "/" + realVersion + ".json");
+                        if (!providedJsonFile.exists()) {
+                            throw new RuntimeException("Minecraft " + versionMessage + " is not currently installed");
+                        }
                         JMinecraftVersionList.Version providedJson = Tools.GLOBAL_GSON.fromJson(Tools.read(providedJsonFile.getAbsolutePath()), JMinecraftVersionList.Version.class);
 
                         // This checks if running modded version that depends on other jars, so we use that for the error message.
@@ -105,8 +105,7 @@ public class MinecraftDownloader {
 
                         listener.onDownloadDone();
                     } catch (Exception e) {
-                        String tryagain = !isOnline ? "Please ensure you have an internet connection" : "Please try again on your Microsoft Account";
-                        Tools.showErrorRemote(versionMessage + " is not currently installed. "+ tryagain, e);
+                        Tools.showErrorRemote(versionMessage + " is not currently installed. Please ensure you have an internet connection", e);
                     }
                 }else {
                 downloadGame(activity, version, realVersion);
