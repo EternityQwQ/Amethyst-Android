@@ -243,19 +243,23 @@ EXTERNAL_API void* pojavCreateContext(void* contextSrc) {
 }
 
 void* maybe_load_vulkan() {
-    // Only Vulkan-based renderers need the Vulkan driver. Skip loading for
-    // OpenGL ES / other renderers to avoid the turnip/linker_ns_load path
-    // which can SIGSEGV on execute-only-memory devices.
+    // Vulkan-based renderers go through the full loader (Turnip attempt + system fallback).
+    // Non-Vulkan renderers still need a Vulkan loader handle so that Mojang's RenderPearl
+    // can discover the Vulkan backend (it reports "Vulkan loader library is missing"
+    // otherwise). For those, skip Turnip and load the system libvulkan.so directly.
     const char *renderer = getenv("AMETHYST_RENDERER");
-    if (renderer == NULL
-            || (strcmp(renderer, "vulkan_zink") != 0
-                && strcmp(renderer, "opengles3_desktopgl_zink_kopper") != 0)) {
-        return NULL;
+    bool is_vulkan_renderer = renderer != NULL
+            && (strcmp(renderer, "vulkan_zink") == 0
+                || strcmp(renderer, "opengles3_desktopgl_zink_kopper") == 0);
+
+    if(getenv("VULKAN_PTR") == NULL) {
+        if(is_vulkan_renderer) {
+            load_vulkan();
+        } else {
+            void* vulkan_ptr = dlopen("libvulkan.so", RTLD_LAZY | RTLD_LOCAL);
+            set_vulkan_ptr(vulkan_ptr);
+        }
     }
-    // We use the env var because
-    // 1. it's easier to do that
-    // 2. it won't break if something will try to load vulkan and osmesa simultaneously
-    if(getenv("VULKAN_PTR") == NULL) load_vulkan();
     return (void*) strtoul(getenv("VULKAN_PTR"), NULL, 0x10);
 }
 
