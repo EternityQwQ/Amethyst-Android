@@ -58,12 +58,17 @@ static void* find_branch_label(void* func_start) {
     // round down the pointer to get the start of the function's page
     void* func_page_start = (void*)(((uintptr_t)func_start) & ~(page_size-1));
     // remap to r-x to bypass "execute only" protections on MIUI
-    mprotect(func_page_start, page_size, PROT_READ | PROT_EXEC);
-    uint32_t* bl_addr = func_start;
-    // search for the "branch to label" opcode
-    while((*bl_addr & OP_MS) != BL_OP) {
-        bl_addr++; // walk through memory until we find it or die
+    if(mprotect(func_page_start, page_size, PROT_READ | PROT_EXEC) != 0) {
+        // mprotect fails on execute-only-memory (XOM) devices; cannot scan code.
+        return NULL;
     }
+    uint32_t* bl_addr = func_start;
+    uint32_t* page_end = (uint32_t*)((char*)func_page_start + page_size);
+    // search for the "branch to label" opcode
+    while(bl_addr < page_end && (*bl_addr & OP_MS) != BL_OP) {
+        bl_addr++; // walk through memory until we find it or hit page boundary
+    }
+    if(bl_addr >= page_end) return NULL;  // BL not found within the page
     // offset the address to find where the "branch to label" instrunction
     // points to.
     return ((char*)bl_addr) + (*bl_addr & BL_IM) * 4;
@@ -75,6 +80,7 @@ bool linker_ns_load(const char* lib_search_path) {
     return false;
 #else
     loader_dlopen_t loader_dlopen = find_branch_label(&dlopen);
+    if(loader_dlopen == NULL) return false;
     // reprotecting the functions removes protection from indirect jumps
     mprotect(loader_dlopen, page_size, PROT_WRITE | PROT_READ | PROT_EXEC);
     void* ld_android_handle = loader_dlopen("ld-android.so", RTLD_LAZY, &dlopen);

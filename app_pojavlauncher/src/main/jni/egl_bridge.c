@@ -103,6 +103,7 @@ void* load_turnip_vulkan() {
     if(getenv("POJAV_LOAD_TURNIP") == NULL) return NULL;
     const char* native_dir = getenv("POJAV_NATIVEDIR");
     const char* cache_dir = getenv("TMPDIR");
+    if(native_dir == NULL) return NULL;
     if(!linker_ns_load(native_dir)) return NULL;
     void* linkerhook = linker_ns_dlopen("liblinkerhook.so", RTLD_LOCAL | RTLD_NOW);
     if(linkerhook == NULL) return NULL;
@@ -241,6 +242,15 @@ EXTERNAL_API void* pojavCreateContext(void* contextSrc) {
 }
 
 void* maybe_load_vulkan() {
+    // Only Vulkan-based renderers need the Vulkan driver. Skip loading for
+    // OpenGL ES / other renderers to avoid the turnip/linker_ns_load path
+    // which can SIGSEGV on execute-only-memory devices.
+    const char *renderer = getenv("AMETHYST_RENDERER");
+    if (renderer == NULL
+            || (strcmp(renderer, "vulkan_zink") != 0
+                && strcmp(renderer, "opengles3_desktopgl_zink_kopper") != 0)) {
+        return NULL;
+    }
     // We use the env var because
     // 1. it's easier to do that
     // 2. it won't break if something will try to load vulkan and osmesa simultaneously
