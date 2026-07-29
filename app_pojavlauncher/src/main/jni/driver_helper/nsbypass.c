@@ -42,6 +42,16 @@ typedef void* (*ld_android_link_namespaces_t)(struct android_namespace_t* namesp
                                               struct android_namespace_t* namespace_to,
                                               const char* shared_libs_sonames);
 
+// Public namespace API (Android 8.0+/API 26+, exported from libdl.so).
+// Unlike the __loader_ internal variants, these do not take a caller_addr.
+typedef struct android_namespace_t* (*public_android_create_namespace_t)(
+        const char* name, const char* ld_library_path, const char* default_library_path, uint64_t type,
+        const char* permitted_when_isolated_path, struct android_namespace_t* parent);
+
+typedef void (*public_android_link_namespaces_t)(struct android_namespace_t* namespace_from,
+                                                 struct android_namespace_t* namespace_to,
+                                                 const char* shared_libs_sonames);
+
 static ld_android_create_namespace_t android_create_namespace;
 static struct android_namespace_t* driver_namespace;
 
@@ -80,7 +90,44 @@ bool linker_ns_load(const char* lib_search_path) {
     return false;
 #else
     loader_dlopen_t loader_dlopen = find_branch_label(&dlopen);
-    if(loader_dlopen == NULL) return false;
+    if(loader_dlopen == NULL) {
+        // find_branch_label fails on execute-only-memory (XOM) devices.
+        // Fall back to the public android_create_namespace API (API 26+,
+        // exported from libdl.so) to create the namespace without scanning
+        // dlopen's code. load_vulkan already requires API 28+.
+        __android_log_print(ANDROID_LOG_INFO, "nsbypass",
+                "find_branch_label failed (likely XOM), trying public namespace API fallback");
+        public_android_create_namespace_t public_create_ns =
+                (public_android_create_namespace_t) dlsym(RTLD_DEFAULT, "android_create_namespace");
+        public_android_link_namespaces_t public_link_ns =
+                (public_android_link_namespaces_t) dlsym(RTLD_DEFAULT, "android_link_namespaces");
+        if(public_create_ns == NULL) {
+            __android_log_print(ANDROID_LOG_ERROR, "nsbypass",
+                    "public android_create_namespace unavailable, cannot load Turnip");
+            return false;
+        }
+        char full_path[strlen(SEARCH_PATH) + strlen(lib_search_path) + 2 + 1];
+        sprintf(full_path, "%s:%s", SEARCH_PATH, lib_search_path);
+        driver_namespace = public_create_ns("pojav-driver", full_path, full_path,
+                                            3 /* TYPE_SHARED | TYPE_ISOLATED */,
+                                            "/system/:/data/:/vendor/:/apex/", NULL);
+        if(driver_namespace == NULL) {
+            __android_log_print(ANDROID_LOG_ERROR, "nsbypass",
+                    "public android_create_namespace failed, cannot load Turnip");
+            return false;
+        }
+        if(public_link_ns != NULL) {
+            public_link_ns(driver_namespace, NULL, "ld-android.so");
+            public_link_ns(driver_namespace, NULL, "libnativeloader.so");
+            public_link_ns(driver_namespace, NULL, "libnativeloader_lazy.so");
+        } else {
+            __android_log_print(ANDROID_LOG_WARN, "nsbypass",
+                    "public android_link_namespaces unavailable, namespace links not established");
+        }
+        __android_log_print(ANDROID_LOG_INFO, "nsbypass",
+                "Turnip namespace created via public API fallback");
+        return true;
+    }
     // reprotecting the functions removes protection from indirect jumps
     mprotect(loader_dlopen, page_size, PROT_WRITE | PROT_READ | PROT_EXEC);
     void* ld_android_handle = loader_dlopen("ld-android.so", RTLD_LAZY, &dlopen);

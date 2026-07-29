@@ -110,6 +110,7 @@ void* load_turnip_vulkan() {
     void* turnip_driver_handle = linker_ns_dlopen("libvulkan_freedreno.so", RTLD_LOCAL | RTLD_NOW);
     if(turnip_driver_handle == NULL) {
         printf("AdrenoSupp: Failed to load Turnip!\n%s\n", dlerror());
+        printf("AdrenoSupp: Turnip load failed, will fall back to system Vulkan driver\n");
         dlclose(linkerhook);
         return NULL;
     }
