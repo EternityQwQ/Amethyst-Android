@@ -91,13 +91,14 @@ android {
             keyPassword "android"
         }
         customRelease {
-            if (System.getenv("GPLAY_KEYSTORE_PASSWORD") != null) {
+            // Use the release keystore only when a non-empty signing secret is provided;
+            // otherwise (e.g. CI without the secret) fall back to the debug keystore.
+            if (System.getenv("GPLAY_KEYSTORE_PASSWORD")?.trim()) {
                 storeFile file("aamc_upload.jks")
                 storePassword System.getenv("GPLAY_KEYSTORE_PASSWORD")
                 keyAlias "android_github_release"
                 keyPassword System.getenv("GPLAY_KEYSTORE_PASSWORD")
             } else {
-                // CI fallback: sign release with debug keystore when no signing secret is configured
                 storeFile file("debug.keystore")
                 storePassword "android"
                 keyAlias "androiddebugkey"
