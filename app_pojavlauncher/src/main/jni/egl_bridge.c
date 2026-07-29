@@ -243,17 +243,19 @@ EXTERNAL_API void* pojavCreateContext(void* contextSrc) {
 }
 
 void* maybe_load_vulkan() {
-    // Vulkan-based renderers go through the full loader (Turnip attempt + system fallback).
-    // Non-Vulkan renderers still need a Vulkan loader handle so that Mojang's RenderPearl
+    // Vulkan-based renderers and Adreno devices with POJAV_LOAD_TURNIP set go through
+    // the full loader (Turnip attempt + system fallback). This gives RenderPearl's
+    // Vulkan backend Vulkan 1.2+ capability via Turnip regardless of renderer.
+    // Other non-Vulkan renderers still need a Vulkan loader handle so that RenderPearl
     // can discover the Vulkan backend (it reports "Vulkan loader library is missing"
-    // otherwise). For those, skip Turnip and load the system libvulkan.so directly.
+    // otherwise); for those, skip Turnip and load the system libvulkan.so directly.
     const char *renderer = getenv("AMETHYST_RENDERER");
     bool is_vulkan_renderer = renderer != NULL
             && (strcmp(renderer, "vulkan_zink") == 0
                 || strcmp(renderer, "opengles3_desktopgl_zink_kopper") == 0);
 
     if(getenv("VULKAN_PTR") == NULL) {
-        if(is_vulkan_renderer) {
+        if(is_vulkan_renderer || getenv("POJAV_LOAD_TURNIP") != NULL) {
             load_vulkan();
         } else {
             void* vulkan_ptr = dlopen("libvulkan.so", RTLD_LAZY | RTLD_LOCAL);
